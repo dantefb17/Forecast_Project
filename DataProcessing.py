@@ -6,14 +6,6 @@ import matplotlib.pyplot as plt
 # Creating the DataFrame and adding all Fred information (One by one since I have to change the columns)
 # %% Creat empty Data Frame 
 Main = pd.DataFrame({"Date": pd.date_range("2006-01-01", "2026-12-01", freq="MS")})
-# %% StickyCPI
-StickyCPI = pd.read_csv("/home/nonoriri/Documents/GitHub/Forecast_Project/Data/CORESTICKM159SFRBATL.csv", parse_dates=["observation_date"])
-StickyCPI = StickyCPI.rename(columns={"observation_date": "Date","CORESTICKM159SFRBATL": "StickyPrices_CPI"})
-Main = Main.merge(StickyCPI[["Date", "StickyPrices_CPI"]], on="Date", how="left")
-# %% CPI for Urban Consumers
-CPIU = pd.read_csv("/home/nonoriri/Documents/GitHub/Forecast_Project/Data/CPIAUCSL.csv", parse_dates=["observation_date"])
-CPIU = CPIU.rename(columns={"observation_date":"Date","CPIAUCSL":"CPI_Urban"})
-Main = Main.merge(CPIU[["Date", "CPI_Urban"]], on="Date", how="left")
 # %% Federal Funds Effective Rate
 DFF = pd.read_csv("/home/nonoriri/Documents/GitHub/Forecast_Project/Data/DFF.csv", parse_dates=["observation_date"])
 DFF = DFF.rename(columns={"observation_date":"Date"})
@@ -23,9 +15,9 @@ RGDP = pd.read_csv("/home/nonoriri/Documents/GitHub/Forecast_Project/Data/GDPC1.
 RGDP = RGDP.rename(columns={"observation_date":"Date","GDPC1":"Real_GDP"})
 Main = Main.merge(RGDP[["Date", "Real_GDP"]], on="Date", how="left")
 # %% USA Population
-USPOP = pd.read_csv("/home/nonoriri/Documents/GitHub/Forecast_Project/Data/POPTOTUSA647NWDB.csv", parse_dates=["observation_date"])
-USPOP = USPOP.rename(columns={"observation_date":"Date","POPTOTUSA647NWDB":"Yearly_US_Pop"})
-Main = Main.merge(USPOP[["Date", "Yearly_US_Pop"]], on="Date", how="left")
+USPOP = pd.read_csv("/home/nonoriri/Documents/GitHub/Forecast_Project/Data/POPTHM.csv", parse_dates=["observation_date"])
+USPOP = USPOP.rename(columns={"observation_date":"Date","POPTHM":"Monthly_US_Pop"})
+Main = Main.merge(USPOP[["Date", "Monthly_US_Pop"]], on="Date", how="left")
 # %% Median Real earnings
 LES = pd.read_csv("/home/nonoriri/Documents/GitHub/Forecast_Project/Data/LES1252881600Q.csv", parse_dates=["observation_date"])
 LES = LES.rename(columns={"observation_date":"Date","LES1252881600Q":"Median_Weekly_Earnings"})
@@ -34,11 +26,16 @@ Main = Main.merge(LES[["Date", "Median_Weekly_Earnings"]], on="Date", how="left"
 CES = pd.read_csv("/home/nonoriri/Documents/GitHub/Forecast_Project/Data/CES0500000003.csv", parse_dates=["observation_date"])
 CES = CES.rename(columns={"observation_date":"Date","CES0500000003":"Average_Hourly_Wage"})
 Main = Main.merge(CES[["Date", "Average_Hourly_Wage"]], on="Date", how="left")
-# %% Data transformation for CPS Part 1 (Thousands)
-LBFL = pd.read_csv("/home/nonoriri/Documents/GitHub/Forecast_Project/Data/LaborForce_Levels-20260930141900_469142.csv")
-LBFL_Long = LBFL.melt(id_vars="Year", var_name="Month",value_name="LBFL")
+# %% Data CPS transformation
+CPI = pd.read_csv("/home/nonoriri/Documents/GitHub/Forecast_Project/Data/CPI20261002101827_cbf131.csv")
+CPI_Long = CPI.melt(id_vars="Year", var_name="Month", value_name=("CPI"))
 month_order = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+CPI_Long["Date"]= pd.to_datetime(CPI_Long["Year"].astype(str) + "-" + CPI_Long["Month"].astype(str),format="%Y-%b")
+Main = Main.merge(CPI_Long[["Date", "CPI"]], on="Date", how="left")
+# %%Labor Force as levels (Thousands)
+LBFL = pd.read_csv("/home/nonoriri/Documents/GitHub/Forecast_Project/Data/LaborForce_Levels-20260930141900_469142.csv")
+LBFL_Long = LBFL.melt(id_vars="Year", var_name="Month",value_name="LBFL")
 LBFL_Long["Date"] = pd.to_datetime(LBFL_Long["Year"].astype(str) + "-" + LBFL_Long["Month"].astype(str),format="%Y-%b")
 Main = Main.merge(LBFL_Long[["Date", "LBFL"]], on="Date", how="left")
 # Now we will do the same for the rest 
@@ -72,8 +69,9 @@ NLF = pd.read_csv("/home/nonoriri/Documents/GitHub/Forecast_Project/Data/NotinLa
 NLF_Long = NLF.melt(id_vars="Year", var_name="Month",value_name="NLF")
 NLF_Long["Date"] = pd.to_datetime(NLF_Long["Year"].astype(str) + "-" + NLF_Long["Month"].astype(str),format="%Y-%b")
 Main = Main.merge(NLF_Long[["Date", "NLF"]], on="Date", how="left")
-# %% Plotting everything
+# %% Data manipulation
 Main = Main.set_index("Date")
+# %%
 plt.plot(Main["EPR"])
 plt.xlabel("Date")
 plt.ylabel("Employment-Population Ratio")
