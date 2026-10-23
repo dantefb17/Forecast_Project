@@ -70,7 +70,11 @@ NLF_Long = NLF.melt(id_vars="Year", var_name="Month",value_name="NLF")
 NLF_Long["Date"] = pd.to_datetime(NLF_Long["Year"].astype(str) + "-" + NLF_Long["Month"].astype(str),format="%Y-%b")
 Main = Main.merge(NLF_Long[["Date", "NLF"]], on="Date", how="left")
 # %% Data manipulation
+# %% Data manipulation
+quarterly_cols = ["Real_GDP", "Median_Weekly_Earnings"]
+Main[quarterly_cols] = Main[quarterly_cols].ffill(limit=2)
 Main = Main.set_index("Date")
+Main.to_csv("MainDataSet.csv", index=True)   # index=True keeps the dates
 # %%
 plt.plot(Main["EPR"])
 plt.xlabel("Date")
