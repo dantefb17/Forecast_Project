@@ -73,6 +73,7 @@ Main = Main.merge(NLF_Long[["Date", "NLF"]], on="Date", how="left")
 # %% Data manipulation
 quarterly_cols = ["Real_GDP", "Median_Weekly_Earnings"]
 Main[quarterly_cols] = Main[quarterly_cols].ffill(limit=2)
+Main = Main[Main["Date"] <= "2026-06-01"]
 Main = Main.set_index("Date")
 Main.to_csv("MainDataSet.csv", index=True)   # index=True keeps the dates
 # %%
