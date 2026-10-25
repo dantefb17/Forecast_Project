@@ -110,3 +110,59 @@ print(f"{forecast_horizon}-Month Forecast -- ARIMA{auto_model.order}")
 print(f"{'='*72}")
 print(forecast_table)
 print(f"{'='*72}")
+# %% Structural test - Chow
+from Tests run_chow_test, _qlr_on_segment, detect_multiple_breaks
+
+break_date = "2008-09-01"
+break_index = series.index.get_loc(break_date)
+
+chow_result = run_chow_test(series.values, break_index, label=f"break at {break_date}")
+# %% 3. QLR Test -- An Unknown Break Date
+
+qlr_result = run_qlr_test(EPR_clean.values, trim=0.15)
+
+qlr_break_date = series.index[qlr_result["break_index"]].date()
+print(f"QLR's best break point corresponds to: {qlr_break_date}")
+# %% 4. Bai-Perron -- Multiple Break Detection
+
+detected_breaks = detect_multiple_breaks(EPR_clean.values, min_size=12)
+
+print(f"\n{'-'*50}")
+print(f"Bai-Perron (recursive QLR segmentation)")
+print(f"{'-'*50}")
+print(f"{'Breaks detected:':<20}{len(detected_breaks):>10}")
+for bp in detected_breaks:
+    print(f"  index {bp:>4} -> {series.index[bp].date()}")
+print(f"{'-'*50}")
+
+segment_bounds = [0] + detected_breaks + [len(series)]
+
+fig, ax = plt.subplots(figsize=(10, 4))
+ax.plot(series.index, series.values, color="tab:blue", linewidth=1.2,
+         label="Inflation Rate", zorder=3)
+
+for bp in detected_breaks:
+    ax.axvline(series.index[bp], color="firebrick", linestyle="--",
+               linewidth=1, zorder=2)
+
+for i in range(len(segment_bounds) - 1):
+    start, end = segment_bounds[i], segment_bounds[i + 1]
+    seg_dates = series.index[start:end]
+    seg_values = series.values[start:end]
+    seg_mean = seg_values.mean()
+    seg_sd = seg_values.std()
+
+    ax.hlines(seg_mean, seg_dates[0], seg_dates[-1],
+              color="black", linewidth=1.5, zorder=4,
+              label="Segment mean" if i == 0 else None)
+    ax.fill_between(seg_dates, seg_mean - 2 * seg_sd, seg_mean + 2 * seg_sd,
+                     color="gray", alpha=0.15, zorder=1,
+                     label="Segment mean +/- 2 SD" if i == 0 else None)
+
+ax.set_title("Inflation Rate with Bai-Perron Breakpoints")
+ax.set_xlabel("Date")
+ax.set_ylabel("Inflation Rate (%)")
+ax.set_xlim(series.index.min(), series.index.max())
+ax.legend()
+plt.tight_layout()
+plt.show()
