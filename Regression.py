@@ -111,17 +111,17 @@ print(f"{'='*72}")
 print(forecast_table)
 print(f"{'='*72}")
 # %% Structural test - Chow
-from Tests run_chow_test, _qlr_on_segment, detect_multiple_breaks
+from Tests import run_chow_test, _qlr_on_segment, detect_multiple_breaks
 
-break_date = "2008-09-01"
-break_index = series.index.get_loc(break_date)
+break_date = "2008-09-01" # Bankrupt Lehman Brothers
+break_index = EPR_clean.index.get_loc(break_date)
 
-chow_result = run_chow_test(series.values, break_index, label=f"break at {break_date}")
+chow_result = run_chow_test(EPR_clean.values, break_index, label=f"break at {break_date}")
 # %% 3. QLR Test -- An Unknown Break Date
 
-qlr_result = run_qlr_test(EPR_clean.values, trim=0.15)
+qlr_result = _qlr_on_segment(EPR_clean.values, trim=0.15)
 
-qlr_break_date = series.index[qlr_result["break_index"]].date()
+qlr_break_date = EPR_clean.index[qlr_result[0]].date()
 print(f"QLR's best break point corresponds to: {qlr_break_date}")
 # %% 4. Bai-Perron -- Multiple Break Detection
 
@@ -132,23 +132,23 @@ print(f"Bai-Perron (recursive QLR segmentation)")
 print(f"{'-'*50}")
 print(f"{'Breaks detected:':<20}{len(detected_breaks):>10}")
 for bp in detected_breaks:
-    print(f"  index {bp:>4} -> {series.index[bp].date()}")
+    print(f"  index {bp:>4} -> {EPR_clean.index[bp].date()}")
 print(f"{'-'*50}")
 
-segment_bounds = [0] + detected_breaks + [len(series)]
+segment_bounds = [0] + detected_breaks + [len(EPR_clean)]
 
 fig, ax = plt.subplots(figsize=(10, 4))
-ax.plot(series.index, series.values, color="tab:blue", linewidth=1.2,
-         label="Inflation Rate", zorder=3)
+ax.plot(EPR_clean.index, EPR_clean.values, color="tab:blue", linewidth=1.2,
+         label="Employment to Population Ratio", zorder=3)
 
 for bp in detected_breaks:
-    ax.axvline(series.index[bp], color="firebrick", linestyle="--",
+    ax.axvline(EPR_clean.index[bp], color="firebrick", linestyle="--",
                linewidth=1, zorder=2)
 
 for i in range(len(segment_bounds) - 1):
     start, end = segment_bounds[i], segment_bounds[i + 1]
-    seg_dates = series.index[start:end]
-    seg_values = series.values[start:end]
+    seg_dates = EPR_clean.index[start:end]
+    seg_values = EPR_clean.values[start:end]
     seg_mean = seg_values.mean()
     seg_sd = seg_values.std()
 
@@ -159,10 +159,10 @@ for i in range(len(segment_bounds) - 1):
                      color="gray", alpha=0.15, zorder=1,
                      label="Segment mean +/- 2 SD" if i == 0 else None)
 
-ax.set_title("Inflation Rate with Bai-Perron Breakpoints")
+ax.set_title("Employment-to-Population Ratio with Bai-Perron Breakpoints")
 ax.set_xlabel("Date")
 ax.set_ylabel("Inflation Rate (%)")
-ax.set_xlim(series.index.min(), series.index.max())
+ax.set_xlim(EPR_clean.index.min(), EPR_clean.index.max())
 ax.legend()
 plt.tight_layout()
 plt.show()
