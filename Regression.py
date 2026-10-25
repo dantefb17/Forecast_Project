@@ -40,9 +40,6 @@ print(f"  p-value   = {kpss_level[1]:.4f}")
 fig, axes = plt.subplots(1, 2, figsize=(10, 3.5))
 plot_acf(EPR_clean, lags=12, ax=axes[0])
 plot_pacf(EPR_clean, lags=12, ax=axes[1])
-for ax in axes:
-    for seasonal_lag in [4, 8, 12]:
-        ax.axvline(seasonal_lag, color="gray", linestyle=":", linewidth=1)
 fig.tight_layout()
 plt.show()
 # %% ARIMA test Initial
@@ -66,7 +63,7 @@ print(ljung_box)
 fig, ax = plt.subplots(figsize=(9, 3.5))
 ax.plot(residuals.index, residuals, linewidth=1.2)
 ax.axhline(0, color="gray", linewidth=0.8, linestyle="--")
-ax.set_title("SARIMA Residuals (post burn-in)")
+ax.set_title("ARIMA Residuals (post burn-in)")
 ax.set_xlim(residuals.index.min(), residuals.index.max())
 fig.tight_layout()
 plt.show()
@@ -123,6 +120,8 @@ qlr_result = _qlr_on_segment(EPR_clean.values, trim=0.15)
 
 qlr_break_date = EPR_clean.index[qlr_result[0]].date()
 print(f"QLR's best break point corresponds to: {qlr_break_date}")
+print(f"Max F-statistic: {qlr_result[1]:.4f}")
+print(f"p-value: {qlr_result[2]:.4f}")
 # %% 4. Bai-Perron -- Multiple Break Detection
 
 detected_breaks = detect_multiple_breaks(EPR_clean.values, min_size=12)
@@ -161,7 +160,7 @@ for i in range(len(segment_bounds) - 1):
 
 ax.set_title("Employment-to-Population Ratio with Bai-Perron Breakpoints")
 ax.set_xlabel("Date")
-ax.set_ylabel("Inflation Rate (%)")
+ax.set_ylabel("Employment-to-Population Ratio")
 ax.set_xlim(EPR_clean.index.min(), EPR_clean.index.max())
 ax.legend()
 plt.tight_layout()
