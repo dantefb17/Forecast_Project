@@ -3,7 +3,7 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import statsmodels as stat
+import statsmodels as sm
 from statsmodels.tsa.stattools import adfuller, kpss
 from statsmodels.stats.diagnostic import acorr_ljungbox
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
@@ -11,6 +11,7 @@ from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 import pmdarima as pm
 from scipy import stats
+from Tests import run_chow_test, _qlr_on_segment, detect_multiple_breaks
 # %% Data
 Main = pd.read_csv("MainDataSet.csv", index_col="Date", parse_dates=True)
 Main["EPR_clean"] = Main["EPR"].ffill(limit=1)
@@ -20,6 +21,48 @@ plt.plot(Main["EPR_clean"])
 plt.xlabel("Date")
 plt.ylabel("Employment-Population Ratio")
 plt.title("Monthly Employment to Population Ratio in the US 2006-2026")
+plt.show()
+# %% Bai-Perron -- Multiple Break Detection
+detected_breaks = detect_multiple_breaks(EPR_clean.values, min_size=36)
+
+print(f"\n{'-'*50}")
+print(f"Bai-Perron (recursive QLR segmentation)")
+print(f"{'-'*50}")
+print(f"{'Breaks detected:':<20}{len(detected_breaks):>10}")
+for bp in detected_breaks:
+    print(f"  index {bp:>4} -> {EPR_clean.index[bp].date()}")
+print(f"{'-'*50}")
+
+segment_bounds = [0] + detected_breaks + [len(EPR_clean)]
+
+fig, ax = plt.subplots(figsize=(10, 4))
+ax.plot(EPR_clean.index, EPR_clean.values, color="tab:blue", linewidth=1.2,
+         label="Employment to Population Ratio", zorder=3)
+
+for bp in detected_breaks:
+    ax.axvline(EPR_clean.index[bp], color="firebrick", linestyle="--",
+               linewidth=1, zorder=2)
+
+for i in range(len(segment_bounds) - 1):
+    start, end = segment_bounds[i], segment_bounds[i + 1]
+    seg_dates = EPR_clean.index[start:end]
+    seg_values = EPR_clean.values[start:end]
+    seg_mean = seg_values.mean()
+    seg_sd = seg_values.std()
+
+    ax.hlines(seg_mean, seg_dates[0], seg_dates[-1],
+              color="black", linewidth=1.5, zorder=4,
+              label="Segment mean" if i == 0 else None)
+    ax.fill_between(seg_dates, seg_mean - 2 * seg_sd, seg_mean + 2 * seg_sd,
+                     color="gray", alpha=0.15, zorder=1,
+                     label="Segment mean +/- 2 SD" if i == 0 else None)
+
+ax.set_title("Employment-to-Population Ratio with Bai-Perron Breakpoints")
+ax.set_xlabel("Date")
+ax.set_ylabel("Employment-to-Population Ratio")
+ax.set_xlim(EPR_clean.index.min(), EPR_clean.index.max())
+ax.legend()
+plt.tight_layout()
 plt.show()
 # %%  ADF test 
 print("ADF test")
@@ -108,60 +151,16 @@ print(f"{'='*72}")
 print(forecast_table)
 print(f"{'='*72}")
 # %% Structural test - Chow
-from Tests import run_chow_test, _qlr_on_segment, detect_multiple_breaks
-
 break_date = "2008-09-01" # Bankrupt Lehman Brothers
 break_index = EPR_clean.index.get_loc(break_date)
 
 chow_result = run_chow_test(EPR_clean.values, break_index, label=f"break at {break_date}")
-# %% 3. QLR Test -- An Unknown Break Date
+# %% 3. QLR Test -- An Unknown Break Date. Mya not be needed since data clearly states more than one
 
-qlr_result = _qlr_on_segment(EPR_clean.values, trim=0.15)
 
-qlr_break_date = EPR_clean.index[qlr_result[0]].date()
-print(f"QLR's best break point corresponds to: {qlr_break_date}")
-print(f"Max F-statistic: {qlr_result[1]:.4f}")
-print(f"p-value: {qlr_result[2]:.4f}")
-# %% 4. Bai-Perron -- Multiple Break Detection
+#qlr_result = _qlr_on_segment(EPR_clean.values, trim=0.15)
 
-detected_breaks = detect_multiple_breaks(EPR_clean.values, min_size=12)
-
-print(f"\n{'-'*50}")
-print(f"Bai-Perron (recursive QLR segmentation)")
-print(f"{'-'*50}")
-print(f"{'Breaks detected:':<20}{len(detected_breaks):>10}")
-for bp in detected_breaks:
-    print(f"  index {bp:>4} -> {EPR_clean.index[bp].date()}")
-print(f"{'-'*50}")
-
-segment_bounds = [0] + detected_breaks + [len(EPR_clean)]
-
-fig, ax = plt.subplots(figsize=(10, 4))
-ax.plot(EPR_clean.index, EPR_clean.values, color="tab:blue", linewidth=1.2,
-         label="Employment to Population Ratio", zorder=3)
-
-for bp in detected_breaks:
-    ax.axvline(EPR_clean.index[bp], color="firebrick", linestyle="--",
-               linewidth=1, zorder=2)
-
-for i in range(len(segment_bounds) - 1):
-    start, end = segment_bounds[i], segment_bounds[i + 1]
-    seg_dates = EPR_clean.index[start:end]
-    seg_values = EPR_clean.values[start:end]
-    seg_mean = seg_values.mean()
-    seg_sd = seg_values.std()
-
-    ax.hlines(seg_mean, seg_dates[0], seg_dates[-1],
-              color="black", linewidth=1.5, zorder=4,
-              label="Segment mean" if i == 0 else None)
-    ax.fill_between(seg_dates, seg_mean - 2 * seg_sd, seg_mean + 2 * seg_sd,
-                     color="gray", alpha=0.15, zorder=1,
-                     label="Segment mean +/- 2 SD" if i == 0 else None)
-
-ax.set_title("Employment-to-Population Ratio with Bai-Perron Breakpoints")
-ax.set_xlabel("Date")
-ax.set_ylabel("Employment-to-Population Ratio")
-ax.set_xlim(EPR_clean.index.min(), EPR_clean.index.max())
-ax.legend()
-plt.tight_layout()
-plt.show()
+#qlr_break_date = EPR_clean.index[qlr_result[0]].date()
+#print(f"QLR's best break point corresponds to: {qlr_break_date}")
+#print(f"Max F-statistic: {qlr_result[1]:.4f}")
+#print(f"p-value: {qlr_result[2]:.4f}")
