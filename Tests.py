@@ -40,6 +40,23 @@ def adf_dummies(y, det, maxlag=8):
             best_p = p
 
     return best_t, best_p
+# KPSS dummies
+def kpss_dummies(y, det, nlags=None):
+    T = len(y)
+    beta = np.linalg.lstsq(det, y, rcond=None)[0]   # regress y on the constant, trend and dummies
+    e = y - det @ beta                               # residuals: what the dummies do not explain
+    S = np.cumsum(e)                                 # running total of the residuals
+
+    if nlags is None:
+        nlags = int(4 * (T / 100) ** 0.25)           # common default for how many lags to use
+
+    # Long-run variance: the plain variance plus weighted autocovariances
+    s2 = e @ e / T
+    for l in range(1, nlags + 1):                    # one pass per lag
+        weight = 1 - l / (nlags + 1)                 # weight shrinks as the lag grows
+        s2 += 2 * weight * (e[l:] @ e[:-l]) / T
+
+    return (S @ S) / (T ** 2 * s2)                   # the KPSS statistic
 # Chow test
 def run_chow_test(series, break_index, label=""):
     series = np.asarray(series)

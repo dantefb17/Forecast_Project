@@ -11,7 +11,7 @@ from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 import pmdarima as pm
 from scipy import stats
-from Tests import run_chow_test, _qlr_on_segment, detect_multiple_breaks, adf_dummies
+from Tests import run_chow_test, _qlr_on_segment, detect_multiple_breaks, adf_dummies, kpss_dummies
 # %% Data
 Main = pd.read_csv("MainDataSet.csv", index_col="Date", parse_dates=True)
 Main["EPR_clean"] = Main["EPR"].ffill(limit=1)
@@ -108,6 +108,23 @@ adf_sim = np.array(adf_sim)
 print("5% critical value:", np.percentile(adf_sim, 5))
 print("Your statistic   :", adf_stat)
 print("Simulated p-value:", (adf_sim <= adf_stat).mean())
+# %% KPSS test 
+kpss_stat = kpss_dummies(y_full.values, det_full)
+print(kpss_stat)
+# %% KPSS values 
+rng = np.random.default_rng(123)
+reps = 1000
+kpss_sim = []
+
+for _ in range(reps):
+    e = rng.standard_normal(len(y_full))      # stationary fake series
+    kpss_sim.append(kpss_dummies(e, det_full))
+
+kpss_sim = np.array(kpss_sim)
+
+print("5% critical value:", np.percentile(kpss_sim, 95))   # note: the 95th percentile
+print("Your statistic   :", kpss_stat)
+print("Simulated p-value:", (kpss_sim >= kpss_stat).mean())
 # %%  ADF test 
 print("ADF test")
 print("H0: the series has a unit root (non-stationary)")
