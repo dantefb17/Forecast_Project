@@ -1,6 +1,45 @@
 #Important tests
 import numpy as np
 from scipy import stats
+import statsmodels.api as sm 
+# ADF with dummies 
+
+def adf_dummies(y, det, maxlag=8):
+    """
+    y      : 1-D numpy array (the series)
+    det    : 2-D numpy array with the deterministic columns
+             (constant, trend, level/trend-change dummies...), one row per date
+    maxlag : most lagged differences to try
+    Returns the ADF t-statistic and the lag chosen.
+    """
+    dy = np.diff(y)                      # changes: dy[i] = y[i+1] - y[i]
+    n = len(dy)
+    k = det.shape[1]
+
+    best_aic, best_t, best_p = np.inf, None, None
+
+    for p in range(maxlag + 1):          # try 0, 1, 2, ... maxlag lagged differences
+        rows = range(maxlag, n)          # same rows for every p, so the AICs are comparable
+
+        # Dependent variable: the change in y
+        Y = np.array([dy[i] for i in rows])
+
+        # Regressors: deterministic part, lagged level, p lagged changes
+        X = []
+        for i in rows:
+            row = list(det[i + 1])                       # constant, trend, dummies
+            row.append(y[i])                             # lagged level (column k)
+            row += [dy[i - j] for j in range(1, p + 1)]  # lagged differences
+            X.append(row)
+        X = np.array(X)
+
+        fit = sm.OLS(Y, X).fit()
+        if fit.aic < best_aic:           # keep the lag length with the lowest AIC
+            best_aic = fit.aic
+            best_t = fit.tvalues[k]      # t-ratio on the lagged level
+            best_p = p
+
+    return best_t, best_p
 # Chow test
 def run_chow_test(series, break_index, label=""):
     series = np.asarray(series)

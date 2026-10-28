@@ -11,7 +11,7 @@ from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 import pmdarima as pm
 from scipy import stats
-from Tests import run_chow_test, _qlr_on_segment, detect_multiple_breaks
+from Tests import run_chow_test, _qlr_on_segment, detect_multiple_breaks, adf_dummies
 # %% Data
 Main = pd.read_csv("MainDataSet.csv", index_col="Date", parse_dates=True)
 Main["EPR_clean"] = Main["EPR"].ffill(limit=1)
@@ -64,25 +64,50 @@ ax.set_xlim(EPR_clean.index.min(), EPR_clean.index.max())
 ax.legend()
 plt.tight_layout()
 plt.show()
-# %% Separate the data
-Covid = EPR_clean.loc[:"2020-04-01"]
-DF = pd.DataFrame["Covid": Covid]
+# %% ADF with dummies
+# Full sample, trimmed to the last month with data
+y_full = EPR_clean.loc[:"2026-06-01"]
+print(y_full.isna().sum())            # must be 0
 
-DF["t"] = np.arrange(len(DF))
+t = np.arange(len(y_full))
 
-Trim1 = DF.index.get_loc(pd.Timestamp("2009-01-01"))
-DF["DL_2009"] = (DF["t"] >= Trim1).astype(int) # Level Dummy           
-DF["DT_2009"] = np.where(DF["t"] >= Trim1, DF["t"] - Trim1, 0) # Trend Dummy   
+def pos(date):
+    """Row number of a date in the series."""
+    return y_full.index.get_loc(pd.Timestamp(date))
 
-Trim2 = DF.index.get_loc(pd.Timestamp("2009-01-01"))
-DF["DL_2009"] = (DF["t"] >= Trim1).astype(int) # Level Dummy           
-DF["DT_2009"] = np.where(DF["t"] >= Trim1, DF["t"] - Trim1, 0) # Trend Dummy   
+# 1. Level dummy at 2009: 0 before, 1 from January 2009 on
+DU_2009 = (t >= pos("2009-01-01")).astype(int)
 
-# OLS exactly like in your panel class
-X = sm.add_constant(df[["t", "DU_2009", "DT_2014"]])    # choose the columns for this specification
-ols = sm.OLS(df["y"], X).fit()
-print(ols.summary())
-print("BIC:", ols.bic)
+# 2. Trend-change dummy at 2014 (only if you decide to keep it):
+#    0 before October 2014, then 1, 2, 3, ... after
+#DT_2014 = np.where(t >= pos("2014-10-01"), t - pos("2014-10-01"), 0)
+
+# 3. COVID pulse: 1 only during the affected months, 0 everywhere else
+COVID = ((y_full.index >= "2020-03-01") & (y_full.index <= "2021-06-01")).astype(int)
+
+# Stack them: constant, linear trend, then the dummies
+det_full = np.column_stack([np.ones(len(y_full)), t, DU_2009, COVID])
+
+print(det_full.shape[0] == len(y_full))   # must be True
+# %% Test ADF after the setting
+adf_stat, lag = adf_dummies(y_full.values, det_full)
+print(adf_stat, lag)
+# %% Compare values 
+rng = np.random.default_rng(123)       # fixed seed so results repeat
+reps = 1000                             # start small to check it runs; raise to 1000 later
+adf_sim = []
+
+for _ in range(reps):                  # repeat the experiment `reps` times
+    e = rng.standard_normal(len(y_full))    # random noise, one value per month
+    fake = np.cumsum(e)                # running total of noise = a random walk (has a unit root)
+    stat, _ = adf_dummies(fake, det_full)   # run YOUR test on the fake series
+    adf_sim.append(stat)               # store its statistic
+
+adf_sim = np.array(adf_sim)
+
+print("5% critical value:", np.percentile(adf_sim, 5))
+print("Your statistic   :", adf_stat)
+print("Simulated p-value:", (adf_sim <= adf_stat).mean())
 # %%  ADF test 
 print("ADF test")
 print("H0: the series has a unit root (non-stationary)")
