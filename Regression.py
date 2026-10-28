@@ -125,6 +125,30 @@ kpss_sim = np.array(kpss_sim)
 print("5% critical value:", np.percentile(kpss_sim, 95))   # note: the 95th percentile
 print("Your statistic   :", kpss_stat)
 print("Simulated p-value:", (kpss_sim >= kpss_stat).mean())
+# %% KPSS with dummies
+kpss_stat = kpss_dummies(y_full.values, det_full)
+# ... your simulation, printing 0.26, 0.1, 0.01
+
+# %% KPSS check: add the 2014 trend-change dummy
+DT_2014 = np.where(t >= pos("2014-10-01"), t - pos("2014-10-01"), 0)
+det_alt = np.column_stack([det_full, DT_2014])
+
+kpss_alt = kpss_dummies(y_full.values, det_alt)
+
+rng = np.random.default_rng(123)
+kpss_sim_alt = np.array([kpss_dummies(rng.standard_normal(len(y_full)), det_alt)
+                         for _ in range(1000)])
+
+print("Statistic        :", kpss_alt)
+print("5% critical value:", np.percentile(kpss_sim_alt, 95))
+print("Simulated p      :", (kpss_sim_alt >= kpss_alt).mean())
+# %% KPSS bandwidth check
+for L in [5, 10, 15, 20]:
+    stat = kpss_dummies(y_full.values, det_full, nlags=L)
+    rng = np.random.default_rng(123)
+    sim = np.array([kpss_dummies(rng.standard_normal(len(y_full)), det_full, nlags=L)
+                    for _ in range(500)])
+    print(f"nlags={L}: statistic {stat:.3f}, 5% cv {np.percentile(sim, 95):.3f}")
 # %%  ADF test 
 print("ADF test")
 print("H0: the series has a unit root (non-stationary)")
