@@ -23,7 +23,7 @@ plt.ylabel("Employment-Population Ratio")
 plt.title("Monthly Employment to Population Ratio in the US 2006-2026")
 plt.show()
 # %% Bai-Perron -- Multiple Break Detection
-detected_breaks = detect_multiple_breaks(EPR_clean.values, min_size=36)
+detected_breaks = detect_multiple_breaks(EPR_clean.values, min_size=36) # Set to 3 years 
 
 print(f"\n{'-'*50}")
 print(f"Bai-Perron (recursive QLR segmentation)")
