@@ -64,6 +64,25 @@ ax.set_xlim(EPR_clean.index.min(), EPR_clean.index.max())
 ax.legend()
 plt.tight_layout()
 plt.show()
+# %% Separate the data
+Covid = EPR_clean.loc[:"2020-04-01"]
+DF = pd.DataFrame["Covid": Covid]
+
+DF["t"] = np.arrange(len(DF))
+
+Trim1 = DF.index.get_loc(pd.Timestamp("2009-01-01"))
+DF["DL_2009"] = (DF["t"] >= Trim1).astype(int) # Level Dummy           
+DF["DT_2009"] = np.where(DF["t"] >= Trim1, DF["t"] - Trim1, 0) # Trend Dummy   
+
+Trim2 = DF.index.get_loc(pd.Timestamp("2009-01-01"))
+DF["DL_2009"] = (DF["t"] >= Trim1).astype(int) # Level Dummy           
+DF["DT_2009"] = np.where(DF["t"] >= Trim1, DF["t"] - Trim1, 0) # Trend Dummy   
+
+# OLS exactly like in your panel class
+X = sm.add_constant(df[["t", "DU_2009", "DT_2014"]])    # choose the columns for this specification
+ols = sm.OLS(df["y"], X).fit()
+print(ols.summary())
+print("BIC:", ols.bic)
 # %%  ADF test 
 print("ADF test")
 print("H0: the series has a unit root (non-stationary)")
