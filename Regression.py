@@ -125,10 +125,6 @@ kpss_sim = np.array(kpss_sim)
 print("5% critical value:", np.percentile(kpss_sim, 95))   # note: the 95th percentile
 print("Your statistic   :", kpss_stat)
 print("Simulated p-value:", (kpss_sim >= kpss_stat).mean())
-# %% KPSS with dummies
-kpss_stat = kpss_dummies(y_full.values, det_full)
-# ... your simulation, printing 0.26, 0.1, 0.01
-
 # %% KPSS check: add the 2014 trend-change dummy
 DT_2014 = np.where(t >= pos("2014-10-01"), t - pos("2014-10-01"), 0)
 det_alt = np.column_stack([det_full, DT_2014])
@@ -149,38 +145,47 @@ for L in [5, 10, 15, 20]:
     sim = np.array([kpss_dummies(rng.standard_normal(len(y_full)), det_full, nlags=L)
                     for _ in range(500)])
     print(f"nlags={L}: statistic {stat:.3f}, 5% cv {np.percentile(sim, 95):.3f}")
-# %%  ADF test 
-print("ADF test")
-print("H0: the series has a unit root (non-stationary)")
-adf_level = adfuller(Main["EPR_clean"], autolag="AIC")
-print(f"  statistic = {adf_level[0]:.4f}")
-print(f"  p-value   = {adf_level[1]:.4f}")
-print(f"  lags used = {adf_level[2]}")
-# %% KPSS test
-print()
-print("KPSS test")
-print("H0: the series is stationary")
-kpss_level = kpss(Main["EPR_clean"], regression="c", nlags="auto")
-print(f"  statistic = {kpss_level[0]:.4f}")
-print(f"  p-value   = {kpss_level[1]:.4f}")
-# The series is stationary
-# %% ACF and PACF
+# %% ACF and PACF after removing the dummies
+beta = np.linalg.lstsq(det_full, y_full.values, rcond=None)[0]
+resid_det = pd.Series(y_full.values - det_full @ beta, index=y_full.index)
+
 fig, axes = plt.subplots(1, 2, figsize=(10, 3.5))
-plot_acf(EPR_clean, lags=12, ax=axes[0])
-plot_pacf(EPR_clean, lags=12, ax=axes[1])
-fig.tight_layout()
+plot_acf(resid_det, lags=24, ax=axes[0])
+plot_pacf(resid_det, lags=24, ax=axes[1])
+plt.tight_layout()
 plt.show()
 # %% ARIMA test Initial
-auto_model = pm.auto_arima(
-    Main["EPR_clean"],
-    #seasonal=True,
-    #m=4,  # quarterly seasonal period
-    trace=False,
-    error_action="ignore",
-    suppress_warnings=True,
-)
+from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.stats.diagnostic import acorr_ljungbox
 
-print(auto_model.summary())
+y = EPR_clean.loc[:"2026-06-01"]
+df = pd.DataFrame({"y": y})
+df["t"] = np.arange(len(df))
+
+def pos(date):
+    return df.index.get_loc(pd.Timestamp(date))
+
+# Dummy columns (build them all once, then pick from them)
+df["DU_2009"] = (df["t"] >= pos("2009-01-01")).astype(int)                       # level shift
+df["DT_2014"] = np.where(df["t"] >= pos("2014-10-01"), df["t"] - pos("2014-10-01"), 0)  # trend change
+df["COVID"]   = ((df.index >= "2020-03-01") & (df.index <= "2021-06-01")).astype(int)   # pulse
+
+# Each specification = a list of columns
+specs = {
+    "1: trend only":               ["t"],
+    "2: + level 2009":             ["t", "DU_2009"],
+    "3: + level 2009 + COVID":     ["t", "DU_2009", "COVID"],
+    "4: + 2014 trend":             ["t", "DU_2009", "DT_2014"],
+    "5: + 2014 trend + COVID":     ["t", "DU_2009", "DT_2014", "COVID"],
+}
+
+results = {}
+for name, cols in specs.items():
+    fit = ARIMA(df["y"], exog=df[cols], order=(1, 0, 1), trend="c").fit()
+    lb = acorr_ljungbox(fit.resid.iloc[12:], lags=[12], return_df=True)["lb_pvalue"].iloc[0]
+    results[name] = {"AIC": fit.aic, "BIC": fit.bic, "LjungBox_p(12)": lb}
+
+print(pd.DataFrame(results).T.round(3))
 # %% Other specifications
 residuals = pd.Series(auto_model.resid(), index = EPR_clean.index).iloc[12:]
 print("Ljung-Box test on residuals")
