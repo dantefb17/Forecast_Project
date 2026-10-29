@@ -154,60 +154,42 @@ plot_acf(resid_det, lags=24, ax=axes[0])
 plot_pacf(resid_det, lags=24, ax=axes[1])
 plt.tight_layout()
 plt.show()
-# %% ARIMA test Initial
-from statsmodels.tsa.arima.model import ARIMA
-from statsmodels.stats.diagnostic import acorr_ljungbox
+# %% Compare ARMA orders with the same dummies
+# det_full columns: constant, trend, DU_2009, COVID. ARIMA adds its own constant,
+# so leave the first column out.
+exog = pd.DataFrame(det_full[:, 1:], index=y_full.index,
+                    columns=["t", "DU_2009", "COVID"])
 
-y = EPR_clean.loc[:"2026-06-01"]
-df = pd.DataFrame({"y": y})
-df["t"] = np.arange(len(df))
+orders = [(1, 0, 1), (2, 0, 1), (3, 0, 1)]
+fits = {}
+rows = []
 
-def pos(date):
-    return df.index.get_loc(pd.Timestamp(date))
-
-# Dummy columns (build them all once, then pick from them)
-df["DU_2009"] = (df["t"] >= pos("2009-01-01")).astype(int)                       # level shift
-df["DT_2014"] = np.where(df["t"] >= pos("2014-10-01"), df["t"] - pos("2014-10-01"), 0)  # trend change
-df["COVID"]   = ((df.index >= "2020-03-01") & (df.index <= "2021-06-01")).astype(int)   # pulse
-
-# Each specification = a list of columns
-specs = {
-    "1: trend only":               ["t"],
-    "2: + level 2009":             ["t", "DU_2009"],
-    "3: + level 2009 + COVID":     ["t", "DU_2009", "COVID"],
-    "4: + 2014 trend":             ["t", "DU_2009", "DT_2014"],
-    "5: + 2014 trend + COVID":     ["t", "DU_2009", "DT_2014", "COVID"],
-}
-
-results = {}
-for name, cols in specs.items():
-    fit = ARIMA(df["y"], exog=df[cols], order=(1, 0, 1), trend="c").fit()
-    lb = acorr_ljungbox(fit.resid.iloc[12:], lags=[12], return_df=True)["lb_pvalue"].iloc[0]
-    results[name] = {"AIC": fit.aic, "BIC": fit.bic, "LjungBox_p(12)": lb}
-
-print(pd.DataFrame(results).T.round(3))
+for order in orders:                                   # one pass per ARMA order
+    fit = ARIMA(y_full, exog=exog, order=order, trend="c").fit()
+    fits[order] = fit                                  # keep each fitted model for later
+    lb = acorr_ljungbox(fit.resid.iloc[12:], lags=[12, 24], return_df=True)["lb_pvalue"]
+    rows.append({"order": order, "AIC": fit.aic, "BIC": fit.bic,
+                 "LB(12) p": lb.iloc[0], "LB(24) p": lb.iloc[1]})
+    print(f"\nARMA{order}")
+    print(fits[order].summary())
 # %% Other specifications
-residuals = pd.Series(auto_model.resid(), index = EPR_clean.index).iloc[12:]
-print("Ljung-Box test on residuals")
-print("H0: residuals are not autocorrelated (i.e., they look like white noise)")
-ljung_box = acorr_ljungbox(residuals, lags=[4, 8, 12], return_df=True)
-print(ljung_box)
+# %% Residual plots for every candidate
+for order in orders:
+    resid = fits[order].resid.iloc[12:]          # drop the first 12 (burn-in)
 
-fig, ax = plt.subplots(figsize=(9, 3.5))
-ax.plot(residuals.index, residuals, linewidth=1.2)
-ax.axhline(0, color="gray", linewidth=0.8, linestyle="--")
-ax.set_title("ARIMA Residuals (post burn-in)")
-ax.set_xlim(residuals.index.min(), residuals.index.max())
-fig.tight_layout()
-plt.show()
+    fig, ax = plt.subplots(figsize=(9, 3.5))
+    ax.plot(resid.index, resid, linewidth=1.2)
+    ax.axhline(0, color="gray", linewidth=0.8, linestyle="--")
+    ax.set_title(f"ARMA{order} Residuals (post burn-in)")
+    ax.set_xlim(resid.index.min(), resid.index.max())
+    fig.tight_layout()
+    plt.show()
 
-fig, ax = plt.subplots(figsize=(6, 3.5))
-plot_acf(residuals, lags=12, ax=ax)
-for seasonal_lag in [4, 8, 12]:
-    ax.axvline(seasonal_lag, color="gray", linestyle=":", linewidth=1)
-ax.set_title("ACF of Residuals")
-fig.tight_layout()
-plt.show()
+    fig, ax = plt.subplots(figsize=(6, 3.5))
+    plot_acf(resid, lags=24, ax=ax)
+    ax.set_title(f"ACF of ARMA{order} Residuals")
+    fig.tight_layout()
+    plt.show()
 # %% Plot forecast
 forecast_horizon = 12
 forecast_result = auto_model.arima_res_.get_forecast(steps=forecast_horizon)
@@ -240,17 +222,3 @@ print(f"{forecast_horizon}-Month Forecast -- ARIMA{auto_model.order}")
 print(f"{'='*72}")
 print(forecast_table)
 print(f"{'='*72}")
-# %% Structural test - Chow
-break_date = "2008-09-01" # Bankrupt Lehman Brothers
-break_index = EPR_clean.index.get_loc(break_date)
-
-chow_result = run_chow_test(EPR_clean.values, break_index, label=f"break at {break_date}")
-# %% 3. QLR Test -- An Unknown Break Date. Mya not be needed since data clearly states more than one
-
-
-#qlr_result = _qlr_on_segment(EPR_clean.values, trim=0.15)
-
-#qlr_break_date = EPR_clean.index[qlr_result[0]].date()
-#print(f"QLR's best break point corresponds to: {qlr_break_date}")
-#print(f"Max F-statistic: {qlr_result[1]:.4f}")
-#print(f"p-value: {qlr_result[2]:.4f}")
