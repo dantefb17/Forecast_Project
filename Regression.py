@@ -18,10 +18,18 @@ Main = pd.read_csv("MainDataSet.csv", index_col="Date", parse_dates=True)
 Main["EPR_clean"] = Main["EPR"].ffill(limit=1)
 EPR_clean = Main["EPR_clean"]
 # %% Plot data
-plt.plot(Main["EPR_clean"])
-plt.xlabel("Date")
-plt.ylabel("Employment-Population Ratio")
-plt.title("Monthly Employment to Population Ratio in the US 2006-2026")
+# %% Plot data with a marker for January 2025
+fig, ax = plt.subplots(figsize=(10, 4))
+
+ax.plot(Main["EPR_clean"], label="Employment-Population Ratio")
+ax.axvline(pd.Timestamp("2025-01-01"), color="firebrick", linestyle="--",
+           linewidth=1.2, label="New administration (Jan 2025)")
+
+ax.set_xlabel("Date")
+ax.set_ylabel("Employment-Population Ratio")
+ax.set_title("Monthly Employment to Population Ratio in the US 2006-2026")
+ax.legend()
+fig.tight_layout()
 plt.show()
 # %% Bai-Perron -- Multiple Break Detection
 detected_breaks = detect_multiple_breaks(EPR_clean.values, min_size=36) # Set to 3 years 
