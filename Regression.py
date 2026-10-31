@@ -17,6 +17,7 @@ from Tests import run_chow_test, _qlr_on_segment, detect_multiple_breaks, adf_du
 Main = pd.read_csv("MainDataSet.csv", index_col="Date", parse_dates=True)
 Main["EPR_clean"] = Main["EPR"].ffill(limit=1)
 EPR_clean = Main["EPR_clean"]
+print(EPR_clean.describe())
 # %% Plot data
 # %% Plot data with a marker for January 2025
 fig, ax = plt.subplots(figsize=(10, 4))
