@@ -180,7 +180,7 @@ for order in orders:                                   # one pass per ARMA order
     rows.append({"order": order, "AIC": fit.aic, "BIC": fit.bic,
                  "LB(12) p": lb.iloc[0], "LB(24) p": lb.iloc[1]})
     print(f"\nARMA{order}")
-    print(fits[order].summary()
+    print(fits[order].summary())
 # %% Residual plots for every candidate
 for order in orders:
     resid = fits[order].resid.iloc[12:]          # drop the first 12 (burn-in)
@@ -203,6 +203,44 @@ fit = ARIMA(y_full, exog=exog, order=(1, 0, 0), trend="c").fit()
 
 print("AR root (abs):", np.abs(fit.arroots))        # must be > 1
 print(acorr_ljungbox(fit.resid.iloc[12:], lags=[12, 24], return_df=True)["lb_pvalue"])   # want > 0.05
+# %% Accuracy of all specifications: in-sample and out-of-sample
+from statsmodels.tsa.arima.model import ARIMA
+
+orders = [(1, 0, 0), (1, 0, 1), (2, 0, 1), (3, 0, 1)]
+h = 12          # months held out for the out-of-sample test
+burn = 12       # first fitted values to drop (initialization)
+
+exog = pd.DataFrame(det_full[:, 1:], index=y_full.index,
+                    columns=["t", "DU_2009", "COVID"])   # ARIMA adds its own constant
+
+def metrics(actual, pred):
+    actual, pred = np.asarray(actual), np.asarray(pred)
+    e = actual - pred
+    return {"RMSE": np.sqrt(np.mean(e ** 2)),
+            "MAE": np.mean(np.abs(e)),
+            "MAPE (%)": 100 * np.mean(np.abs(e / actual))}
+
+# Split once, so every model faces the same test
+y_tr, y_te = y_full.iloc[:-h], y_full.iloc[-h:]
+ex_tr, ex_te = exog.iloc[:-h], exog.iloc[-h:]
+
+rows = []
+for order in orders:
+    # In-sample: fit on the whole sample, use one-step-ahead fitted values
+    fit_all = ARIMA(y_full, exog=exog, order=order, trend="c").fit()
+    fitted = fit_all.fittedvalues.iloc[burn:]
+    rows.append({"Model": f"ARMA{order[0], order[2]}", "Sample": "In-sample",
+                 **metrics(y_full.iloc[burn:], fitted)})
+
+    # Out-of-sample: fit on the training part only, forecast the held-out months
+    fit_tr = ARIMA(y_tr, exog=ex_tr, order=order, trend="c").fit()
+    fc = fit_tr.get_forecast(steps=h, exog=ex_te).predicted_mean
+    rows.append({"Model": f"ARMA{order[0], order[2]}", "Sample": "Out-of-sample",
+                 **metrics(y_te, fc)})
+
+results = pd.DataFrame(rows).set_index(["Model", "Sample"]).round(3)
+print(f"Held out: {y_te.index[0].date()} to {y_te.index[-1].date()}\n")
+print(results)
 # %% Forecast
 h = 24
 future_idx = pd.date_range(y_full.index[-1] + pd.offsets.MonthBegin(1), periods=h, freq="MS")
