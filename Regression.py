@@ -22,8 +22,6 @@ print(EPR_clean.describe())
 fig, ax = plt.subplots(figsize=(10, 4))
 
 ax.plot(Main["EPR_clean"], label="Employment-Population Ratio")
-ax.axvline(pd.Timestamp("2025-01-01"), color="firebrick", linestyle="--",
-           linewidth=1.2, label="New administration (Jan 2025)")
 
 ax.set_xlabel("Date")
 ax.set_ylabel("Employment-Population Ratio")
@@ -74,32 +72,39 @@ ax.legend()
 plt.tight_layout()
 plt.show()
 # %% ADF with dummies
-# Full sample, trimmed to the last month with data
+# Full sample and trimmed sample. CUt until last month data
 y_full = EPR_clean.loc[:"2026-06-01"]
+y_trim = EPR_clean.loc["2009-01-01":"2026-06-01"]
 print(y_full.isna().sum())            # must be 0
 
-t = np.arange(len(y_full))
+t = np.arange(len(y_trim))
 
 def pos(date):
     """Row number of a date in the series."""
-    return y_full.index.get_loc(pd.Timestamp(date))
+    return y_trim.index.get_loc(pd.Timestamp(date))
 
 # 1. Level dummy at 2009: 0 before, 1 from January 2009 on
-DU_2009 = (t >= pos("2009-01-01")).astype(int)
+# DU_2009 = (t >= pos("2009-01-01")).astype(int)
 
 # 2. Trend-change dummy at 2014 (only if you decide to keep it):
 #    0 before October 2014, then 1, 2, 3, ... after
 #DT_2014 = np.where(t >= pos("2014-10-01"), t - pos("2014-10-01"), 0)
 
 # 3. COVID pulse: 1 only during the affected months, 0 everywhere else
-COVID = ((y_full.index >= "2020-03-01") & (y_full.index <= "2021-06-01")).astype(int)
+# COVID = ((y_full.index >= "2020-03-01") & (y_full.index <= "2021-06-01")).astype(int)
+covid_pulses = pd.DataFrame({
+    "COVID_2020_03": (y_trim.index.to_period("M") == "2020-03").astype(int),
+    "COVID_2020_04": (y_trim.index.to_period("M") == "2020-04").astype(int),
+    "COVID_2020_05": (y_trim.index.to_period("M") == "2020-05").astype(int),
+}, index=y_trim.index)
+
 
 # Stack them: constant, linear trend, then the dummies
-det_full = np.column_stack([np.ones(len(y_full)), t, DU_2009, COVID])
+det_trim = np.column_stack([np.ones(len(y_trim)), t, ])
 
-print(det_full.shape[0] == len(y_full))   # must be True
+print(det_trim.shape[0] == len(y_trim))   # must be True
 # %% Test ADF after the setting
-adf_stat, lag = adf_dummies(y_full.values, det_full)
+adf_stat, lag = adf_dummies(y_trim.values, det_trim)
 print(adf_stat, lag)
 # %% Compare values 
 rng = np.random.default_rng(123)       # fixed seed so results repeat
@@ -107,9 +112,9 @@ reps = 1000                             # start small to check it runs; raise to
 adf_sim = []
 
 for _ in range(reps):                  # repeat the experiment `reps` times
-    e = rng.standard_normal(len(y_full))    # random noise, one value per month
+    e = rng.standard_normal(len(y_trim))    # random noise, one value per month
     fake = np.cumsum(e)                # running total of noise = a random walk (has a unit root)
-    stat, _ = adf_dummies(fake, det_full)   # run YOUR test on the fake series
+    stat, _ = adf_dummies(fake, det_trim)   # run YOUR test on the fake series
     adf_sim.append(stat)               # store its statistic
 
 adf_sim = np.array(adf_sim)
@@ -118,7 +123,7 @@ print("5% critical value:", np.percentile(adf_sim, 5))
 print("Your statistic   :", adf_stat)
 print("Simulated p-value:", (adf_sim <= adf_stat).mean())
 # %% KPSS test 
-kpss_stat = kpss_dummies(y_full.values, det_full)
+kpss_stat = kpss_dummies(y_trim.values, det_trim)
 print(kpss_stat)
 # %% KPSS values 
 rng = np.random.default_rng(123)
@@ -126,8 +131,8 @@ reps = 1000
 kpss_sim = []
 
 for _ in range(reps):
-    e = rng.standard_normal(len(y_full))      # stationary fake series
-    kpss_sim.append(kpss_dummies(e, det_full))
+    e = rng.standard_normal(len(y_trim))      # stationary fake series
+    kpss_sim.append(kpss_dummies(e, det_trim))
 
 kpss_sim = np.array(kpss_sim)
 
@@ -155,8 +160,8 @@ for L in [5, 10, 15, 20]:
                     for _ in range(500)])
     print(f"nlags={L}: statistic {stat:.3f}, 5% cv {np.percentile(sim, 95):.3f}")
 # %% ACF and PACF after removing the dummies
-beta = np.linalg.lstsq(det_full, y_full.values, rcond=None)[0]
-resid_det = pd.Series(y_full.values - det_full @ beta, index=y_full.index)
+beta = np.linalg.lstsq(det_trim, y_trim.values, rcond=None)[0]
+resid_det = pd.Series(y_trim.values - det_trim @ beta, index=y_trim.index)
 
 fig, axes = plt.subplots(1, 2, figsize=(10, 3.5))
 plot_acf(resid_det, lags=24, ax=axes[0])
@@ -198,6 +203,20 @@ for order in orders:
     ax.set_title(f"ACF of ARMA{order} Residuals")
     fig.tight_layout()
     plt.show()
+# %%Ljungbox
+"ljung_box_lags": [12, 24]
+print(f"\n{'-'*60}")
+print(f"Ljung-Box test on residuals, by equation")
+print(f"H0: residuals are not autocorrelated (i.e., they look like white noise)")
+print(f"{'-'*60}")
+resid = pd.DataFrame(fit.resid, columns=variables, index=df.index[-fit.resid.shape[0]:])
+for col in variables:
+    lb = acorr_ljungbox(resid[col], lags=CONFIG["ljung_box_lags"], return_df=True)
+    p_values = lb["lb_pvalue"].values
+    verdict = "OK" if min(p_values) > 0.05 else "CHECK -- possible leftover autocorrelation"
+    p_str = ", ".join(f"p(lag {lag})={p:.4f}" for lag, p in zip(CONFIG["ljung_box_lags"], p_values))
+    print(f"{col:<15} {p_str}   ({verdict})")
+print(f"{'-'*60}")
 # %% Quick check(AR(1))
 fit = ARIMA(y_full, exog=exog, order=(1, 0, 0), trend="c").fit()
 
