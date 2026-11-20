@@ -171,15 +171,15 @@ plt.show()
 # %% Compare ARMA orders with the same dummies
 # det_full columns: constant, trend, DU_2009, COVID. ARIMA adds its own constant,
 # so leave the first column out.
-exog = pd.DataFrame(det_full[:, 1:], index=y_full.index,
-                    columns=["t", "DU_2009", "COVID"])
+exog = pd.DataFrame(det_trim[:, 1:], index=y_trim.index,
+                    columns=["t", "March_2020", "April_2020", "May_2020"])
 
 orders = [(1, 0, 1), (2, 0, 1), (3, 0, 1), (1, 0, 0)]
 fits = {}
 rows = []
 
 for order in orders:                                   # one pass per ARMA order
-    fit = ARIMA(y_full, exog=exog, order=order, trend="c").fit()
+    fit = ARIMA(y_trim, exog=exog, order=order, trend="c").fit()
     fits[order] = fit                                  # keep each fitted model for later
     lb = acorr_ljungbox(fit.resid.iloc[12:], lags=[12, 24], return_df=True)["lb_pvalue"]
     rows.append({"order": order, "AIC": fit.aic, "BIC": fit.bic,
