@@ -173,7 +173,7 @@ plt.show()
 exog = pd.DataFrame(det_trim[:, 1:], index=y_trim.index,
                     columns=["t", "March_2020", "April_2020", "May_2020"])
 
-orders = [(3, 0, 1), (4, 0, 0), (4, 0, 1)]
+orders = [(4, 0, 0), (3, 0, 1), (4, 0, 1), (5, 0, 1)]
 fits = {}
 rows = []
 
