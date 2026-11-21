@@ -153,9 +153,9 @@ print("5% critical value:", np.percentile(kpss_sim_alt, 95))
 print("Simulated p      :", (kpss_sim_alt >= kpss_alt).mean())
 # %% KPSS bandwidth check
 for L in [5, 10, 15, 20]:
-    stat = kpss_dummies(y_full.values, det_full, nlags=L)
+    stat = kpss_dummies(y_trim.values, det_trim, nlags=L)
     rng = np.random.default_rng(123)
-    sim = np.array([kpss_dummies(rng.standard_normal(len(y_full)), det_full, nlags=L)
+    sim = np.array([kpss_dummies(rng.standard_normal(len(y_trim)), det_trim, nlags=L)
                     for _ in range(500)])
     print(f"nlags={L}: statistic {stat:.3f}, 5% cv {np.percentile(sim, 95):.3f}")
 # %% ACF and PACF after removing the dummies
