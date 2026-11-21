@@ -75,7 +75,7 @@ plt.show()
 # Full sample and trimmed sample. CUt until last month data
 y_full = EPR_clean.loc[:"2026-06-01"]
 y_trim = EPR_clean.loc["2009-01-01":"2026-06-01"]
-print(y_full.isna().sum())            # must be 0
+print(y_trim.isna().sum())            # must be 0
 
 t = np.arange(len(y_trim))
 
@@ -98,11 +98,10 @@ covid_pulses = pd.DataFrame({
     "COVID_2020_05": (y_trim.index.to_period("M") == "2020-05").astype(int),
 }, index=y_trim.index)
 
+det_trim = np.column_stack([np.ones(len(y_trim)), t, covid_pulses.values])
 
-# Stack them: constant, linear trend, then the dummies
-det_trim = np.column_stack([np.ones(len(y_trim)), t, ])
-
-print(det_trim.shape[0] == len(y_trim))   # must be True
+print(det_trim.shape)                      # (number of months, 5): constant, trend, 3 dummies
+print(det_trim.shape[0] == len(y_trim))    # must be True
 # %% Test ADF after the setting
 adf_stat, lag = adf_dummies(y_trim.values, det_trim)
 print(adf_stat, lag)
@@ -174,7 +173,7 @@ plt.show()
 exog = pd.DataFrame(det_trim[:, 1:], index=y_trim.index,
                     columns=["t", "March_2020", "April_2020", "May_2020"])
 
-orders = [(1, 0, 1), (2, 0, 1), (3, 0, 1), (1, 0, 0)]
+orders = [(3, 0, 1), (4, 0, 0), (4, 0, 1)]
 fits = {}
 rows = []
 
@@ -204,33 +203,37 @@ for order in orders:
     fig.tight_layout()
     plt.show()
 # %%Ljungbox
-"ljung_box_lags": [12, 24]
+lags = [12, 24]
+burn = 12        # first residuals dropped (start-up); set to 0 to keep all
+
 print(f"\n{'-'*60}")
-print(f"Ljung-Box test on residuals, by equation")
-print(f"H0: residuals are not autocorrelated (i.e., they look like white noise)")
+print("Ljung-Box test on residuals, by specification")
+print("H0: residuals are not autocorrelated (i.e., they look like white noise)")
 print(f"{'-'*60}")
-resid = pd.DataFrame(fit.resid, columns=variables, index=df.index[-fit.resid.shape[0]:])
-for col in variables:
-    lb = acorr_ljungbox(resid[col], lags=CONFIG["ljung_box_lags"], return_df=True)
+
+for order, f in fits.items():
+    resid = f.resid.iloc[burn:]
+    lb = acorr_ljungbox(resid, lags=lags, model_df=order[0] + order[2], return_df=True)
     p_values = lb["lb_pvalue"].values
     verdict = "OK" if min(p_values) > 0.05 else "CHECK -- possible leftover autocorrelation"
-    p_str = ", ".join(f"p(lag {lag})={p:.4f}" for lag, p in zip(CONFIG["ljung_box_lags"], p_values))
-    print(f"{col:<15} {p_str}   ({verdict})")
+    p_str = ", ".join(f"p(lag {lag})={p:.4f}" for lag, p in zip(lags, p_values))
+    print(f"{'ARMA' + str(order):<18} {p_str}   ({verdict})")
+
 print(f"{'-'*60}")
 # %% Quick check(AR(1))
-fit = ARIMA(y_full, exog=exog, order=(1, 0, 0), trend="c").fit()
+fit = ARIMA(y_trim, exog=exog, order=(4, 0, 0), trend="c").fit()
 
 print("AR root (abs):", np.abs(fit.arroots))        # must be > 1
 print(acorr_ljungbox(fit.resid.iloc[12:], lags=[12, 24], return_df=True)["lb_pvalue"])   # want > 0.05
 # %% Accuracy of all specifications: in-sample and out-of-sample
 from statsmodels.tsa.arima.model import ARIMA
 
-orders = [(1, 0, 0), (1, 0, 1), (2, 0, 1), (3, 0, 1)]
-h = 12          # months held out for the out-of-sample test
+orders = [(3, 0, 1), (4, 0, 0), (4, 0, 1)]
+h = 24          # months held out for the out-of-sample test
 burn = 12       # first fitted values to drop (initialization)
 
-exog = pd.DataFrame(det_full[:, 1:], index=y_full.index,
-                    columns=["t", "DU_2009", "COVID"])   # ARIMA adds its own constant
+exog = pd.DataFrame(det_trim[:, 1:], index=y_trim.index,
+                    columns=["t", "March_2020", "April_2020", "May_2020"])   # ARIMA adds its own constant
 
 def metrics(actual, pred):
     actual, pred = np.asarray(actual), np.asarray(pred)
@@ -240,16 +243,16 @@ def metrics(actual, pred):
             "MAPE (%)": 100 * np.mean(np.abs(e / actual))}
 
 # Split once, so every model faces the same test
-y_tr, y_te = y_full.iloc[:-h], y_full.iloc[-h:]
+y_tr, y_te = y_trim.iloc[:-h], y_trim.iloc[-h:]
 ex_tr, ex_te = exog.iloc[:-h], exog.iloc[-h:]
 
 rows = []
 for order in orders:
     # In-sample: fit on the whole sample, use one-step-ahead fitted values
-    fit_all = ARIMA(y_full, exog=exog, order=order, trend="c").fit()
+    fit_all = ARIMA(y_trim, exog=exog, order=order, trend="c").fit()
     fitted = fit_all.fittedvalues.iloc[burn:]
     rows.append({"Model": f"ARMA{order[0], order[2]}", "Sample": "In-sample",
-                 **metrics(y_full.iloc[burn:], fitted)})
+                 **metrics(y_trim.iloc[burn:], fitted)})
 
     # Out-of-sample: fit on the training part only, forecast the held-out months
     fit_tr = ARIMA(y_tr, exog=ex_tr, order=order, trend="c").fit()
@@ -257,15 +260,26 @@ for order in orders:
     rows.append({"Model": f"ARMA{order[0], order[2]}", "Sample": "Out-of-sample",
                  **metrics(y_te, fc)})
 
+# ---- NEW: random walk benchmark (no estimation) ----
+rw_in = y_trim.shift(1).iloc[burn:]                 # in-sample: last month's value
+rows.append({"Model": "Random walk", "Sample": "In-sample",
+             **metrics(y_trim.iloc[burn:], rw_in)})
+
+rw_out = np.repeat(y_tr.iloc[-1], h)                # out-of-sample: last training value, all h months
+rows.append({"Model": "Random walk", "Sample": "Out-of-sample",
+             **metrics(y_te, rw_out)})
+# ---------------------------------------------------
+
 results = pd.DataFrame(rows).set_index(["Model", "Sample"]).round(3)
 print(f"Held out: {y_te.index[0].date()} to {y_te.index[-1].date()}\n")
 print(results)
+# %% 
 # %% Forecast
 h = 24
-future_idx = pd.date_range(y_full.index[-1] + pd.offsets.MonthBegin(1), periods=h, freq="MS")
+future_idx = pd.date_range(y_trim.index[-1] + pd.offsets.MonthBegin(1), periods=h, freq="MS")
 
 exog_future = pd.DataFrame({
-    "t": np.arange(len(y_full), len(y_full) + h),
+    "t": np.arange(len(y_trim), len(y_trim) + h),
     "DU_2009": 1,
     "COVID": 0,
 }, index=future_idx)
