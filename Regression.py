@@ -228,7 +228,7 @@ print(acorr_ljungbox(fit.resid.iloc[12:], lags=[12, 24], return_df=True)["lb_pva
 # %% Accuracy of all specifications: in-sample and out-of-sample
 from statsmodels.tsa.arima.model import ARIMA
 
-orders = [(3, 0, 1), (4, 0, 0), (4, 0, 1)]
+orders = [(4, 0, 0), (3, 0, 1), (4, 0, 1), (5, 0, 1)]
 h = 24          # months held out for the out-of-sample test
 burn = 12       # first fitted values to drop (initialization)
 
