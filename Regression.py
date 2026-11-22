@@ -273,7 +273,87 @@ rows.append({"Model": "Random walk", "Sample": "Out-of-sample",
 results = pd.DataFrame(rows).set_index(["Model", "Sample"]).round(3)
 print(f"Held out: {y_te.index[0].date()} to {y_te.index[-1].date()}\n")
 print(results)
-# %% 
+# %% Rolling-origin (expanding window) forecast errors
+import warnings
+from statsmodels.tsa.arima.model import ARIMA
+
+warnings.filterwarnings("ignore")
+
+models = {"AR(4)": (4, 0, 0), "ARMA(3,1)": (3, 0, 1)}
+H = 12                                                   # maximum horizon
+n = len(y_trim)
+first = y_trim.index.get_loc(pd.Timestamp("2020-06-01"))  # first origin: training ends in May 2020
+
+records = []
+for T in range(first, n - 1):                            # T = number of observations used for training
+    y_train, ex_train = y_trim.iloc[:T], exog.iloc[:T]
+    steps = min(H, n - T)                                # fewer steps near the end of the sample
+    ex_future = exog.iloc[T:T + steps]
+    actual = y_trim.iloc[T:T + steps]
+
+    forecasts = {"Random walk": np.repeat(y_train.iloc[-1], steps)}
+    for name, order in models.items():
+        fit = ARIMA(y_train, exog=ex_train, order=order, trend="c").fit()
+        forecasts[name] = fit.get_forecast(steps=steps, exog=ex_future).predicted_mean.values
+
+    for name, fc in forecasts.items():
+        for h in range(1, steps + 1):
+            records.append({"model": name, "origin": y_train.index[-1], "h": h,
+                            "actual": actual.iloc[h - 1], "forecast": fc[h - 1]})
+
+errs = pd.DataFrame(records)
+errs["error"] = errs["actual"] - errs["forecast"]
+errs["abs_pct"] = 100 * np.abs(errs["error"] / errs["actual"])
+
+summary = (errs[errs["h"].isin([1, 3, 6, 12])]
+           .groupby(["model", "h"])
+           .agg(RMSE=("error", lambda e: np.sqrt(np.mean(e ** 2))),
+                MAE=("error", lambda e: np.mean(np.abs(e))),
+                MAPE=("abs_pct", "mean"),
+                n_errors=("error", "count"))
+           .round(3))
+print(summary)
+# %% Quick check 
+errs["year"] = pd.to_datetime(errs["origin"]).dt.year
+print(errs[errs["h"].isin([1, 12])]
+      .groupby(["model", "h", "year"])["error"]
+      .apply(lambda e: np.sqrt(np.mean(e ** 2)))
+      .unstack("year").round(2))
+# %% Diebold-Mariano tests on the rolling-origin errors
+from scipy import stats
+
+def dm_test(e1, e2, h):
+    """H0: equal predictive accuracy (squared-error loss).
+    Negative statistic = model 1 has the smaller loss (better)."""
+    d = e1 ** 2 - e2 ** 2                         # loss differential at each origin
+    n = len(d)
+    lrv = np.var(d, ddof=0)                       # variance of d
+    for k in range(1, h):                         # add autocovariances up to lag h-1
+        lrv += 2 * np.cov(d[k:], d[:-k], ddof=0)[0, 1]
+    if lrv <= 0:
+        return np.nan, np.nan
+    dm = d.mean() / np.sqrt(lrv / n)
+    hln = np.sqrt((n + 1 - 2 * h + h * (h - 1) / n) / n)   # small-sample correction
+    dm_adj = hln * dm
+    p = 2 * (1 - stats.t.cdf(abs(dm_adj), df=n - 1))
+    return dm_adj, p
+
+pairs = [("ARMA(3,1)", "AR(4)"),
+         ("ARMA(3,1)", "Random walk"),
+         ("AR(4)", "Random walk")]
+
+rows = []
+for h in [1, 3, 6, 12]:
+    sub = (errs[errs["h"] == h]
+           .pivot(index="origin", columns="model", values="error")
+           .dropna())
+    # sub = sub[sub.index >= "2022-01-01"]        # optional: exclude the post-COVID recovery
+    for a, b in pairs:
+        stat, p = dm_test(sub[a].values, sub[b].values, h)
+        rows.append({"h": h, "Model 1": a, "Model 2": b,
+                     "DM stat": stat, "p-value": p, "n": len(sub)})
+
+print(pd.DataFrame(rows).round(3).to_string(index=False))
 # %% Forecast
 h = 24
 future_idx = pd.date_range(y_trim.index[-1] + pd.offsets.MonthBegin(1), periods=h, freq="MS")
