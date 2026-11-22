@@ -354,93 +354,157 @@ for h in [1, 3, 6, 12]:
                      "DM stat": stat, "p-value": p, "n": len(sub)})
 
 print(pd.DataFrame(rows).round(3).to_string(index=False))
-# %% Forecast
-h = 24
-future_idx = pd.date_range(y_trim.index[-1] + pd.offsets.MonthBegin(1), periods=h, freq="MS")
+# %% Forecast: selected model on the trimmed sample
+from statsmodels.tsa.arima.model import ARIMA
 
+order = (4, 0, 0)            # selected specification; change here if needed
+h = 24
+
+exog_trim = pd.DataFrame(det_trim[:, 1:], index=y_trim.index,
+                         columns=["t", "March_2020", "April_2020", "May_2020"])
+fit_trim = ARIMA(y_trim, exog=exog_trim, order=order, trend="c").fit()
+
+future_idx = pd.date_range(y_trim.index[-1] + pd.offsets.MonthBegin(1), periods=h, freq="MS")
 exog_future = pd.DataFrame({
     "t": np.arange(len(y_trim), len(y_trim) + h),
-    "DU_2009": 1,
-    "COVID": 0,
+    "March_2020": 0, "April_2020": 0, "May_2020": 0,       # the dummies are off in the future
 }, index=future_idx)
 
-fc = fit.get_forecast(steps=h, exog=exog_future)
+fc = fit_trim.get_forecast(steps=h, exog=exog_future)
 forecast_mean = fc.predicted_mean
-conf_int = fc.conf_int()          # columns are named after the series, so use iloc below
+conf_int = fc.conf_int()
+forecast_mean.index = future_idx          # make sure the dates are attached
+conf_int.index = future_idx
 
 fig, ax = plt.subplots(figsize=(10, 4))
-ax.plot(y_full.loc["2022-01-01":], label="Observed")
+ax.plot(y_trim.loc["2022-01-01":], label="Observed")
 ax.plot(forecast_mean.index, forecast_mean.values, label="Forecast", color="firebrick")
 ax.fill_between(conf_int.index, conf_int.iloc[:, 0], conf_int.iloc[:, 1],
                 color="firebrick", alpha=0.15, label="95% CI")
-ax.set_title(f"Employment-Population Ratio -- {h}-Month Forecast (ARMA(1,0,0) with dummies)")
+ax.set_title(f"Employment-Population Ratio -- {h}-Month Forecast (ARMA{order}, trimmed sample)")
 ax.legend()
 plt.tight_layout()
 plt.show()
 
 print(pd.concat([forecast_mean.rename("forecast"), conf_int], axis=1).round(3))
-# %% AR(1) on the post-COVID sample: fit, diagnostics and forecast
-# ---- 1. Sample and fit --------------------------------------------------
-start = "2021-07-01"                       # first month after the COVID recovery; change if you want
-h = 24                                     # forecast horizon
-burn = 3                                   # first residuals to drop (initialization)
+# %% Post-2021 sample: stationarity (constant + trend), auto-selected model, diagnostics, forecast
+import warnings
+import pmdarima as pm
+from statsmodels.tsa.stattools import adfuller, kpss
+from statsmodels.stats.diagnostic import acorr_ljungbox
+from statsmodels.stats.stattools import jarque_bera
+from statsmodels.graphics.tsaplots import plot_acf
+from statsmodels.tools.sm_exceptions import InterpolationWarning
 
-y_post = y_full.loc[start:].asfreq("MS")   # monthly frequency so statsmodels does not warn
+warnings.simplefilter("ignore", InterpolationWarning)
+
+start = "2021-07-01"
+h = 24
+burn = 3
+
+y_post = y_trim.loc[start:].asfreq("MS")
+exog_post = pd.DataFrame({"t": np.arange(len(y_post))}, index=y_post.index)
 print(f"Sample: {y_post.index[0].date()} to {y_post.index[-1].date()} ({len(y_post)} obs)\n")
 
-# No dummies here: DU_2009 would be constant (1) and COVID would be 0 in this sample
-fit = ARIMA(y_post, order=(1, 0, 0), trend="c").fit()
+# ---- 1. Stationarity: constant + trend, standard critical values ----------
+adf_stat, adf_p, adf_lag, _, adf_crit, _ = adfuller(y_post, regression="ct", autolag="AIC")
+print("ADF (H0: unit root)")
+print(f"  statistic {adf_stat:.3f} | p {adf_p:.3f} | 5% cv {adf_crit['5%']:.3f} | lags {adf_lag}")
 
-# ---- 2. Summary and coefficient table ----------------------------------
-print(fit.summary())
+kpss_stat, kpss_p, kpss_lags, kpss_crit = kpss(y_post, regression="ct", nlags="auto")
+print("KPSS (H0: stationary around a trend)")
+print(f"  statistic {kpss_stat:.3f} | p {kpss_p:.3f} | 5% cv {kpss_crit['5%']:.3f} | lags {kpss_lags}\n")
 
-ci = fit.conf_int()
-coef_table = pd.DataFrame({
-    "coef": fit.params, "std err": fit.bse, "z": fit.tvalues,
-    "P>|z|": fit.pvalues, "[0.025": ci.iloc[:, 0], "0.975]": ci.iloc[:, 1],
-}).round(4)
-print("\nCoefficient table")
-print(coef_table)
+# ---- 2. Automatic model selection (trend as regressor) --------------------
+auto_post = pm.auto_arima(y_post, X=exog_post, seasonal=False, d=0,
+                          information_criterion="aic",      # or "bic"
+                          max_p=5, max_q=5, stepwise=True,
+                          error_action="ignore", suppress_warnings=True)
+print(auto_post.summary())
+p, _, q = auto_post.order
+print(f"\nSelected order: ARMA({p},{q})")
 
-long_run_mean = fit.params["const"] / (1 - fit.params["ar.L1"])
-print(f"\nImplied long-run mean: {long_run_mean:.3f}")
-print(f"AR root (abs, must be > 1): {np.abs(fit.arroots)}")
+# ---- 3. Residual tests ----------------------------------------------------
+resid = pd.Series(np.asarray(auto_post.resid()), index=y_post.index).iloc[burn:]
 
-# ---- 3. Residual tests --------------------------------------------------
-resid = fit.resid.iloc[burn:]
-
-lb = acorr_ljungbox(resid, lags=[6, 12], model_df=1, return_df=True)   # model_df=1: one AR parameter
+lb = acorr_ljungbox(resid, lags=[6, 12], model_df=p + q, return_df=True)
 print("\nLjung-Box (H0: no autocorrelation in the residuals)")
 print(lb.round(4))
 
 jb_stat, jb_p, skew, kurt = jarque_bera(resid)
-print(f"\nJarque-Bera (H0: normal residuals): stat {jb_stat:.3f}, p {jb_p:.3f}, "
-      f"skew {skew:.2f}, kurtosis {kurt:.2f}")
+print(f"\nJarque-Bera: stat {jb_stat:.3f}, p {jb_p:.3f}, skew {skew:.2f}, kurtosis {kurt:.2f}")
 
-# ---- 4. Residual plots --------------------------------------------------
 fig, axes = plt.subplots(1, 2, figsize=(11, 3.5))
 axes[0].plot(resid.index, resid, linewidth=1.2)
 axes[0].axhline(0, color="gray", linewidth=0.8, linestyle="--")
-axes[0].set_title("AR(1) residuals (post-2021 sample)")
+axes[0].set_title(f"ARMA({p},{q}) residuals (post-2021 sample)")
 plot_acf(resid, lags=min(24, len(resid) // 2 - 1), ax=axes[1])
 axes[1].set_title("ACF of residuals")
 fig.tight_layout()
 plt.show()
 
-# ---- 5. Forecast --------------------------------------------------------
-fc = fit.get_forecast(steps=h)
-forecast_mean = fc.predicted_mean
-conf_int = fc.conf_int(alpha=0.05)
+# ---- 4. Forecast -----------------------------------------------------------
+future_idx = pd.date_range(y_post.index[-1] + pd.offsets.MonthBegin(1), periods=h, freq="MS")
+exog_future = pd.DataFrame({"t": np.arange(len(y_post), len(y_post) + h)}, index=future_idx)
+
+fc, ci = auto_post.predict(n_periods=h, X=exog_future, return_conf_int=True, alpha=0.05)
+forecast_mean = pd.Series(np.asarray(fc), index=future_idx)
+conf_int = pd.DataFrame(np.asarray(ci), index=future_idx, columns=["lower", "upper"])
 
 fig, ax = plt.subplots(figsize=(10, 4))
 ax.plot(y_post, label="Observed")
 ax.plot(forecast_mean.index, forecast_mean.values, label="Forecast", color="firebrick")
-ax.fill_between(conf_int.index, conf_int.iloc[:, 0], conf_int.iloc[:, 1],
+ax.fill_between(conf_int.index, conf_int["lower"], conf_int["upper"],
                 color="firebrick", alpha=0.15, label="95% CI")
-ax.set_title(f"Employment-Population Ratio -- {h}-Month Forecast (AR(1), post-2021 sample)")
+ax.set_title(f"Employment-Population Ratio -- {h}-Month Forecast (ARMA({p},{q}), post-2021 sample)")
 ax.legend()
 fig.tight_layout()
 plt.show()
 
-print("\nForecast table")
 print(pd.concat([forecast_mean.rename("forecast"), conf_int], axis=1).round(3))
+# %% Same hold-out: trimmed-sample AR(4) vs short-sample ARMA(1,2)
+from statsmodels.tsa.arima.model import ARIMA
+
+h = 12                       # months held out (same dates for both models)
+start = "2021-07-01"         # start of the short sample
+burn = 4                     # first fitted values dropped in the in-sample comparison
+
+def metrics(actual, pred):
+    actual, pred = np.asarray(actual), np.asarray(pred)
+    e = actual - pred
+    return {"RMSE": np.sqrt(np.mean(e ** 2)),
+            "MAE": np.mean(np.abs(e)),
+            "MAPE (%)": 100 * np.mean(np.abs(e / actual))}
+
+# ---- Trimmed sample (2009-): AR(4) with trend + three COVID dummies ----
+exog_trim = pd.DataFrame(det_trim[:, 1:], index=y_trim.index,
+                         columns=["t", "March_2020", "April_2020", "May_2020"])
+y_tr_a, y_te = y_trim.iloc[:-h], y_trim.iloc[-h:]
+fit_a = ARIMA(y_tr_a, exog=exog_trim.iloc[:-h], order=(4, 0, 0), trend="c").fit()
+fc_a = fit_a.get_forecast(steps=h, exog=exog_trim.iloc[-h:]).predicted_mean
+
+# ---- Short sample (2021-07-): ARMA(1,2) with trend ----
+y_post = y_trim.loc[start:].asfreq("MS")
+exog_post = pd.DataFrame({"t": np.arange(len(y_post))}, index=y_post.index)
+y_tr_b = y_post.iloc[:-h]
+fit_b = ARIMA(y_tr_b, exog=exog_post.iloc[:-h], order=(1, 0, 2), trend="c").fit()
+fc_b = fit_b.get_forecast(steps=h, exog=exog_post.iloc[-h:]).predicted_mean
+
+assert (y_post.index[-h:] == y_te.index).all()        # same hold-out months for both models
+
+# ---- Out-of-sample and in-sample (on the months both models share) ----
+common = y_tr_b.index[burn:]
+rows = [
+    ("AR(4), trimmed sample",  fit_a.fittedvalues.loc[common], fc_a),
+    ("ARMA(1,2), short sample", fit_b.fittedvalues.loc[common], fc_b),
+    ("Random walk",             y_trim.shift(1).loc[common],    np.repeat(y_tr_a.iloc[-1], h)),
+]
+
+out = []
+for name, pred_in, pred_out in rows:
+    out.append({"Model": name, "Sample": "In-sample",     **metrics(y_trim.loc[common], pred_in)})
+    out.append({"Model": name, "Sample": "Out-of-sample", **metrics(y_te, pred_out)})
+
+print(f"Hold-out: {y_te.index[0].date()} to {y_te.index[-1].date()} | "
+      f"short-sample training obs: {len(y_tr_b)}\n")
+print(pd.DataFrame(out).set_index(["Model", "Sample"]).round(3))
